@@ -42,7 +42,9 @@ class MemePhrases:
 
 meme_bot = MemePhrases()
 
-
+# -----------------------------
+# Запит до API
+# -----------------------------
 async def fetch_json(url):
     async with ClientSession() as session:
         async with session.get(url) as resp:
@@ -54,6 +56,7 @@ async def get_quote():
         return f"{data['content']}\n— {data['author']}"
     except:
         return "Не вдалося отримати цитату."
+
 WEATHER_EMOJI = {
     0: "☀️ Ясно",
     1: "🌤️ Переважно ясно",
@@ -73,16 +76,33 @@ async def get_weather(coords):
     try:
         url = (
             f"https://api.open-meteo.com/v1/forecast?"
-            f"latitude={coords['lat']}&longitude={coords['lon']}&current_weather=true"
+            f"latitude={coords['lat']}&longitude={coords['lon']}"
+            f"&current_weather=true&daily=temperature_2m_max,temperature_2m_min,"
+            f"precipitation_sum,windspeed_10m_max,sunrise,sunset&timezone=Europe/Kiev"
         )
         data = await fetch_json(url)
-        weather = data["current_weather"]
-        temp = weather["temperature"]
-        wind = weather["windspeed"]
-        code = weather.get("weathercode", 0)
-        emoji = WEATHER_EMOJI.get(code, "🌍")
 
-        return f"{emoji}\nТемпература: {temp}°C\nВітер: {wind} км/год"
+        # Поточна погода
+        current = data.get("current_weather", {})
+        temp = current.get("temperature", "N/A")
+        wind = current.get("windspeed", "N/A")
+        code = current.get("weathercode", 0)
+        emoji = WEATHER_EMOJI.get(code, "🌍")
+        current_weather = f"{emoji}\n🌡 Температура: {temp}°C\n💨 Вітер: {wind} км/год\n\n"
+
+        # Прогноз на 7 днів
+        daily = data.get("daily", {})
+        forecast = "*Прогноз на 7 днів:*\n"
+        for i in range(len(daily.get("time", []))):
+            forecast += (
+                f"📅 {daily['time'][i]}\n"
+                f"🌡 {daily['temperature_2m_min'][i]}°C - {daily['temperature_2m_max'][i]}°C\n"
+                f"💧 Опади: {daily['precipitation_sum'][i]} мм\n"
+                f"💨 Вітер: {daily['windspeed_10m_max'][i]} км/год\n"
+                f"☀️ Схід: {daily['sunrise'][i].split('T')[1]}, 🌙 Захід: {daily['sunset'][i].split('T')[1]}\n\n"
+            )
+
+        return current_weather + forecast
     except Exception as e:
         print("Weather error:", e)
         return "Не вдалося отримати погоду."
@@ -94,7 +114,7 @@ def find_coords(city_name):
     return None
 
 # -----------------------------
-# Команди
+# Команди бота
 # -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -154,7 +174,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         coords = find_coords(city)
         if coords:
             weather_info = await get_weather(coords)
-            await query.message.reply_text(f"Місто встановлено: {city}\n\nПоточна погода:\n{weather_info}")
+            await query.message.reply_text(
+                f"Місто встановлено: {city}\n\n{weather_info}",
+                parse_mode="Markdown"
+            )
         else:
             await query.message.reply_text(f"Місто встановлено: {city}\nПогода недоступна.")
 
@@ -168,7 +191,8 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
         weather_text = await get_weather(coords) if coords else "Погода недоступна."
         await context.bot.send_message(
             chat_id,
-            f"Доброго ранку! ☕\n\n{quote_text}\n\nПогода у {city}:\n{weather_text}"
+            f"Доброго ранку! ☕\n\n{quote_text}\n\n{weather_text}",
+            parse_mode="Markdown"
         )
 
 # -----------------------------
