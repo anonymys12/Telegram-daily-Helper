@@ -105,9 +105,7 @@ def run_bot():
     print("Бот запущено...")
     app_bot.run_polling()
 
-# ----------------------
-# Основний блок
-# ----------------------
+
 if __name__ == "__main__":
     # Flask у окремому потоці
     flask_thread = Thread(target=run_flask)
