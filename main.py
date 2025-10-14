@@ -56,8 +56,6 @@ async def get_quote():
         return f"{data['content']}\n— {data['author']}"
     except:
         return "Не вдалося отримати цитату."
-
-# Мапа погодних кодів у емодзі
 WEATHER_EMOJI = {
     0: "☀️ Ясно",
     1: "🌤️ Переважно ясно",
