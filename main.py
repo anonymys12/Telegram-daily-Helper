@@ -42,9 +42,7 @@ class MemePhrases:
 
 meme_bot = MemePhrases()
 
-# -----------------------------
-# API функції
-# -----------------------------
+
 async def fetch_json(url):
     async with ClientSession() as session:
         async with session.get(url) as resp:
