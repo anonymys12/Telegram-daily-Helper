@@ -5,11 +5,17 @@ from aiohttp import ClientSession
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.request import HTTPXRequest
 
 from cities_by_region import CITIES_BY_REGION  # словник областей та міст
 
-load_dotenv()
+# -----------------------------
+# Завантаження токена
+# -----------------------------
+load_dotenv(dotenv_path=".env")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN не знайдено! Перевір .env файл.")
 
 USER_CITY = {}  # {chat_id: "Київ"}
 
@@ -51,12 +57,11 @@ async def fetch_json(url):
             return await resp.json()
 
 async def get_quote():
-    try:
-        data = await fetch_json("https://api.quotable.io/random")
-        return f"{data['content']}\n— {data['author']}"
-    except:
-        return "Не вдалося отримати цитату."
+    return meme_bot.get_random_phrase()
 
+# -----------------------------
+# Погода
+# -----------------------------
 WEATHER_EMOJI = {
     0: "☀️ Ясно",
     1: "🌤️ Переважно ясно",
@@ -72,15 +77,34 @@ WEATHER_EMOJI = {
     95: "⛈️ Гроза",
 }
 
-async def get_weather(coords):
+async def get_weather(coords, days=7):
     try:
         url = (
             f"https://api.open-meteo.com/v1/forecast?"
             f"latitude={coords['lat']}&longitude={coords['lon']}"
             f"&current_weather=true&daily=temperature_2m_max,temperature_2m_min,"
-            f"precipitation_sum,windspeed_10m_max,sunrise,sunset&timezone=Europe/Kiev"
+            f"precipitation_sum,windspeed_10m_max,sunrise,sunset,weathercode&timezone=Europe/Kiev"
         )
         data = await fetch_json(url)
+
+        # --- Функції для емодзі ---
+        def temp_emoji(temp):
+            if temp <= 0: return "❄️"
+            elif temp <= 10: return "🧥"
+            elif temp <= 20: return "🌤️"
+            elif temp <= 30: return "🌞"
+            else: return "🔥"
+
+        def wind_emoji(speed):
+            if speed < 5: return "🍃"
+            elif speed < 15: return "💨"
+            else: return "🌪️"
+
+        def rain_emoji(precip):
+            if precip == 0: return "💦"
+            elif precip < 5: return "🌦️"
+            elif precip < 20: return "🌧️"
+            else: return "⛈️"
 
         # Поточна погода
         current = data.get("current_weather", {})
@@ -88,20 +112,33 @@ async def get_weather(coords):
         wind = current.get("windspeed", "N/A")
         code = current.get("weathercode", 0)
         emoji = WEATHER_EMOJI.get(code, "🌍")
-        current_weather = f"{emoji}\n🌡 Температура: {temp}°C\n💨 Вітер: {wind} км/год\n\n"
+        current_weather = (
+            f"🌟 *Поточна погода*\n"
+            f"{emoji} {temp_emoji(temp)}\n"
+            f"🌡 *Температура:* {temp}°C\n"
+            f"💨 *Вітер:* {wind} км/год {wind_emoji(wind)}\n"
+            f"——————————————\n"
+        )
 
-        # Прогноз на 7 днів
+        # Прогноз на N днів у вигляді карток
         daily = data.get("daily", {})
-        forecast = "*Прогноз на 7 днів:*\n"
-        for i in range(len(daily.get("time", []))):
-            forecast += (
-                f"📅 {daily['time'][i]}\n"
-                f"🌡 {daily['temperature_2m_min'][i]}°C - {daily['temperature_2m_max'][i]}°C\n"
-                f"💧 Опади: {daily['precipitation_sum'][i]} мм\n"
-                f"💨 Вітер: {daily['windspeed_10m_max'][i]} км/год\n"
-                f"☀️ Схід: {daily['sunrise'][i].split('T')[1]}, 🌙 Захід: {daily['sunset'][i].split('T')[1]}\n\n"
-            )
+        forecast = f"🌈 *Прогноз на {days} днів:*\n"
+        for i in range(min(days, len(daily.get("time", [])))):
+            code = daily.get("weathercode", [0]*days)[i]
+            day_emoji = WEATHER_EMOJI.get(code, "🌍")
+            t_min = daily['temperature_2m_min'][i]
+            t_max = daily['temperature_2m_max'][i]
+            precip = daily['precipitation_sum'][i]
+            wind_speed = daily['windspeed_10m_max'][i]
 
+            forecast += (
+                f"📅 *{daily['time'][i]}* {day_emoji} {temp_emoji((t_min+t_max)/2)}\n"
+                f"🌡 *Температура:* {t_min}°C – {t_max}°C\n"
+                f"💧 *Опади:* {precip} мм {rain_emoji(precip)}\n"
+                f"💨 *Вітер:* {wind_speed} км/год {wind_emoji(wind_speed)}\n"
+                f"☀️ *Схід:* {daily['sunrise'][i].split('T')[1]} | 🌙 *Захід:* {daily['sunset'][i].split('T')[1]}\n"
+                f"——————————————\n"
+            )
         return current_weather + forecast
     except Exception as e:
         print("Weather error:", e)
@@ -130,10 +167,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-async def quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = await get_quote()
-    await update.message.reply_text(text)
-
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -141,18 +174,15 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat_id
 
     if data == "random_phrase":
-        phrase = meme_bot.get_random_phrase()
-        await query.message.reply_text(phrase)
+        await query.message.reply_text(meme_bot.get_random_phrase())
 
     elif data == "random_quote":
-        text = await get_quote()
-        await query.message.reply_text(text)
+        await query.message.reply_text(await get_quote())
 
     elif data == "choose_region":
         keyboard = [[InlineKeyboardButton(region, callback_data=f"region_{region}")]
                     for region in sorted(CITIES_BY_REGION.keys())]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.message.reply_text("Оберіть область:", reply_markup=reply_markup)
+        await query.message.reply_text("Оберіть область:", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data.startswith("region_"):
         region = data.replace("region_", "")
@@ -165,21 +195,34 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 row = []
         if row:
             keyboard.append(row)
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.message.reply_text(f"Оберіть місто в {region}:", reply_markup=reply_markup)
+        await query.message.reply_text(f"Оберіть місто в {region}:", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data.startswith("city_"):
         city = data.replace("city_", "")
         USER_CITY[chat_id] = city
         coords = find_coords(city)
         if coords:
-            weather_info = await get_weather(coords)
+            keyboard = [
+                [InlineKeyboardButton("3 дні", callback_data=f"weather_{city}_3")],
+                [InlineKeyboardButton("5 днів", callback_data=f"weather_{city}_5")],
+                [InlineKeyboardButton("7 днів", callback_data=f"weather_{city}_7")]
+            ]
             await query.message.reply_text(
-                f"Місто встановлено: {city}\n\n{weather_info}",
-                parse_mode="Markdown"
+                f"Місто встановлено: {city}\nОберіть тривалість прогнозу:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
             await query.message.reply_text(f"Місто встановлено: {city}\nПогода недоступна.")
+
+    elif data.startswith("weather_"):
+        _, city, days = data.split("_")
+        coords = find_coords(city)
+        if coords:
+            weather_info = await get_weather(coords, int(days))
+            await query.message.reply_text(
+                f"Прогноз для {city} на {days} днів:\n\n{weather_info}",
+                parse_mode="Markdown"
+            )
 
 # -----------------------------
 # Ранкові повідомлення
@@ -199,12 +242,16 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
 # Запуск бота
 # -----------------------------
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    request = HTTPXRequest()  # без keepalive_expiry
+    app = ApplicationBuilder().token(BOT_TOKEN).request(request).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button))
 
-    app.job_queue.run_daily(daily_job, time=dt_time(hour=8, minute=0))
+    if app.job_queue:
+        app.job_queue.run_daily(daily_job, time=dt_time(hour=8, minute=0))
+    else:
+        print("⚠️ JobQueue не активна — щоденне повідомлення вимкнено.")
 
-    print("Бот запущено...")
-    app.run_polling()
+    print("✅ Бот запущено...")
+    app.run_polling(stop_signals=None)
