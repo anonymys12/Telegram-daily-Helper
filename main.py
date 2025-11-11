@@ -9,9 +9,7 @@ from telegram.request import HTTPXRequest
 
 from cities_by_region import CITIES_BY_REGION  # словник областей та міст
 
-# -----------------------------
-# Завантаження токена
-# -----------------------------
+
 load_dotenv(dotenv_path=".env")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -19,9 +17,7 @@ if not BOT_TOKEN:
 
 USER_CITY = {}  # {chat_id: "Київ"}
 
-# -----------------------------
-# Клас фраз
-# -----------------------------
+
 class MemePhrases:
     def __init__(self):
         self.phrases = [
@@ -48,9 +44,7 @@ class MemePhrases:
 
 meme_bot = MemePhrases()
 
-# -----------------------------
-# Запит до API
-# -----------------------------
+
 async def fetch_json(url):
     async with ClientSession() as session:
         async with session.get(url) as resp:
@@ -59,9 +53,7 @@ async def fetch_json(url):
 async def get_quote():
     return meme_bot.get_random_phrase()
 
-# -----------------------------
-# Погода
-# -----------------------------
+
 WEATHER_EMOJI = {
     0: "☀️ Ясно",
     1: "🌤️ Переважно ясно",
@@ -106,7 +98,7 @@ async def get_weather(coords, days=7):
             elif precip < 20: return "🌧️"
             else: return "⛈️"
 
-        # Поточна погода
+        
         current = data.get("current_weather", {})
         temp = current.get("temperature", "N/A")
         wind = current.get("windspeed", "N/A")
@@ -120,7 +112,7 @@ async def get_weather(coords, days=7):
             f"——————————————\n"
         )
 
-        # Прогноз на N днів у вигляді карток
+        
         daily = data.get("daily", {})
         forecast = f"🌈 *Прогноз на {days} днів:*\n"
         for i in range(min(days, len(daily.get("time", [])))):
@@ -150,9 +142,7 @@ def find_coords(city_name):
             return cities[city_name]
     return None
 
-# -----------------------------
-# Команди бота
-# -----------------------------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
@@ -238,9 +228,7 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-# -----------------------------
-# Запуск бота
-# -----------------------------
+
 if __name__ == "__main__":
     request = HTTPXRequest()  # без keepalive_expiry
     app = ApplicationBuilder().token(BOT_TOKEN).request(request).build()
